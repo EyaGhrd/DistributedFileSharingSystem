@@ -1,31 +1,64 @@
 package main
 
 import (
+	"context"
 	"fmt"
-	"os"
-	"os/signal"
-	"syscall"
-
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/host"
+	"strings"
 )
 
-func main() {
-	listenAddr := "/ip4/0.0.0.0/tcp/9090"
-
-	host, err := libp2p.New(
-		libp2p.ListenAddrStrings(listenAddr),
-		libp2p.DefaultTransports,
-		libp2p.DefaultMuxers,
-		libp2p.DefaultSecurity,
-	)
+func SourceNode() host.Host {
+	node, err := libp2p.New()
 	if err != nil {
 		panic(err)
 	}
 
-	fmt.Printf("Host ID: %s\n", host.ID())
-	fmt.Printf("Listen addresses: %v\n", host.Addrs())
+	return node
+}
+func DestinationNode() host.Host {
+	listenAddr := "/ip4/172.17.0.1/tcp/9090"
+	node, err := libp2p.New(libp2p.ListenAddrStrings(listenAddr))
+	if err != nil {
+		panic(err)
+	}
 
-	ch := make(chan os.Signal, 1)
-	signal.Notify(ch, syscall.SIGINT, syscall.SIGTERM)
-	<-ch
+	return node
+}
+func connectToNodeFromSource(sourceNode host.Host, targetNode host.Host) {
+	targetNodeAddressInfo := host.InfoFromHost(targetNode)
+	err := sourceNode.Connect(context.Background(), *targetNodeAddressInfo)
+	if err != nil {
+		panic(err)
+	}
+}
+func countSourceNodePeers(sourceNode host.Host) int {
+	return len(sourceNode.Network().Peers())
+}
+func printNodeID(host host.Host) {
+	println(fmt.Sprintf("ID: %s", host.ID().String()))
+}
+
+func printNodeAddresses(host host.Host) {
+	addressesString := make([]string, 0)
+	for _, address := range host.Addrs() {
+		addressesString = append(addressesString, address.String())
+	}
+
+	println(fmt.Sprintf("Multiaddresses: %s", strings.Join(addressesString, ", ")))
+}
+func main() {
+	sourceNode := SourceNode()
+	println("-- SOURCE NODE INFORMATION --")
+	printNodeID(sourceNode)
+	printNodeAddresses(sourceNode)
+
+	targetNode := DestinationNode()
+	println("-- TARGET NODE INFORMATION --")
+	printNodeID(targetNode)
+	printNodeAddresses(targetNode)
+
+	connectToNodeFromSource(sourceNode, targetNode)
+
+	println(fmt.Sprintf("Source node peers: %d", countSourceNodePeers(sourceNode)))
 }
