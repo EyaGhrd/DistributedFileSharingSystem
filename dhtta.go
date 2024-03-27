@@ -9,7 +9,6 @@ import (
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
-
 	"log"
 	"sync"
 
@@ -41,9 +40,12 @@ func NewDh(ctx context.Context, host host.Host, Peers []multiaddr.Multiaddr) (*d
 
 	var wg sync.WaitGroup
 	for _, peerAddr := range Peers {
-		peerinformations, _ := peer.AddrInfoFromP2pAddr(peerAddr)
-
+		peerinformations, err := peer.AddrInfoFromP2pAddr(peerAddr)
+		if err != nil {
+			return nil, err
+		}
 		wg.Add(1)
+
 		go func() {
 			defer wg.Done()
 			if err := host.Connect(ctx, *peerinformations); err != nil {
@@ -58,6 +60,7 @@ func NewDh(ctx context.Context, host host.Host, Peers []multiaddr.Multiaddr) (*d
 	return thisdht, nil
 }
 func DestinationNode() host.Host {
+
 	listenAddr := "/ip4/172.17.0.1/tcp/9090"
 	node, err := libp2p.New(libp2p.ListenAddrStrings(listenAddr))
 	if err != nil {
@@ -88,6 +91,15 @@ func printNodeAddresses(host host.Host) {
 
 	println(fmt.Sprintf("Multiaddresses: %s", strings.Join(addressesString, ", ")))
 }
+func createNodeWithMultiaddr(ctx context.Context, listenAddress multiaddr.Multiaddr) (host.Host, error) {
+	// Create a new libp2p node specifying the listen address
+	node, err := libp2p.New(libp2p.ListenAddrStrings(listenAddress.String()))
+	if err != nil {
+		return nil, err
+	}
+	return node, nil
+}
+
 func main() {
 	ctx := context.Background()
 
@@ -118,9 +130,35 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	discoveryPeers := []multiaddr.Multiaddr{}
+	var bootstrapPeers []multiaddr.Multiaddr
 
-	dht, err := NewDh(ctx, sourceNode, discoveryPeers)
+	Adress := []multiaddr.Multiaddr{
+		multiaddrString("/ip4/172.17.0.1/tcp/4001"),
+		multiaddrString("/ip4/172.17.0.1/tcp/4000"),
+		multiaddrString("/ip4/172.17.0.1/tcp/5000"),
+		multiaddrString("/ip4/172.17.0.1/tcp/4500"),
+		multiaddrString("/ip4/172.17.0.1/tcp/4600"),
+	}
+	for _, addr := range Adress {
+		node, err := createNodeWithMultiaddr(ctx, addr)
+		if err != nil {
+			panic(err)
+		}
+		fmt.Printf("*********\n")
+		peerAddr := addr.Encapsulate(multiaddrString(fmt.Sprintf("/ipfs/%s", node.ID())))
+
+		// Append the bootstrap peer address to the list
+		bootstrapPeers = append(bootstrapPeers, peerAddr)
+		// Print the ID and addresses of the created node
+		fmt.Println("Node ID:", node.ID())
+		fmt.Println("Node Addresses:")
+		for _, addr := range node.Addrs() {
+			fmt.Println(addr)
+		}
+		fmt.Println("---------------------------------------")
+	}
+
+	dht, err := NewDh(ctx, sourceNode, bootstrapPeers)
 	if err != nil {
 		panic(err)
 	}
@@ -130,4 +168,11 @@ func main() {
 	fmt.Printf("##########################\n")
 
 	println(fmt.Sprintf("Source node peers: %d", countSourceNodePeers(sourceNode)))
+}
+func multiaddrString(addr string) multiaddr.Multiaddr {
+	maddr, err := multiaddr.NewMultiaddr(addr)
+	if err != nil {
+		panic(err)
+	}
+	return maddr
 }
