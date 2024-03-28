@@ -1,18 +1,27 @@
 package main
 
 import (
+	"bufio"
 	"context"
+	"flag"
 	"fmt"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
+	_ "github.com/libp2p/go-libp2p/core/discovery"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
+	_ "github.com/libp2p/go-libp2p/core/routing"
+	mdns2 "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
+	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
+	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/multiformats/go-multiaddr"
-	"log"
-	"sync"
 
+	"log"
+	"os"
 	"strings"
+	"sync"
+	"time"
 )
 
 func SourceNode() host.Host {
@@ -131,7 +140,9 @@ func main() {
 		panic(err)
 	}
 	var bootstrapPeers []multiaddr.Multiaddr
-
+	//this are multi-address string
+	// the first thing node node whe it join to the network it connect to well-known nodes
+	// their name is bootstrap nodes
 	Adress := []multiaddr.Multiaddr{
 		multiaddrString("/ip4/172.17.0.1/tcp/4001"),
 		multiaddrString("/ip4/172.17.0.1/tcp/4000"),
@@ -145,6 +156,8 @@ func main() {
 			panic(err)
 		}
 		fmt.Printf("*********\n")
+		//so to add them to dht table i should create node with given address
+		//and then combine the address with bootstrap node id
 		peerAddr := addr.Encapsulate(multiaddrString(fmt.Sprintf("/ipfs/%s", node.ID())))
 
 		// Append the bootstrap peer address to the list
@@ -157,13 +170,30 @@ func main() {
 		}
 		fmt.Println("---------------------------------------")
 	}
-
+	// this node a node created with default parameter so when i run code
+	// discover function found it
+	_ = SourceNode()
+	//create dht
 	dht, err := NewDh(ctx, sourceNode, bootstrapPeers)
 	if err != nil {
 		panic(err)
 	}
+	//the rendezvous is FileSharingNetwork
+	go Discoverr(ctx, targetNode, dht, "FileSharingNetwork")
 
-	println(dht)
+	if err := setupDiscovery(sourceNode); err != nil {
+		panic(err)
+	}
+	ps, err := pubsub.NewGossipSub(context.Background(), sourceNode)
+	if err != nil {
+		log.Fatal(err)
+	}
+	room := "FileSharingNetwork"
+	topic, err := ps.Join(room)
+	if err != nil {
+		panic(err)
+	}
+	publish(ctx, topic)
 
 	fmt.Printf("##########################\n")
 
@@ -175,4 +205,143 @@ func multiaddrString(addr string) multiaddr.Multiaddr {
 		panic(err)
 	}
 	return maddr
+}
+
+// this is not necessary now
+func publish(ctx context.Context, topic *pubsub.Topic) {
+	for {
+		scanner := bufio.NewScanner(os.Stdin)
+		for scanner.Scan() {
+			fmt.Printf("enter message to publish: \n")
+
+			msg := scanner.Text()
+			if len(msg) != 0 {
+				// publish message to topic
+				bytes := []byte(msg)
+				topic.Publish(ctx, bytes)
+			}
+		}
+	}
+}
+
+type discoveryNotifee struct {
+	h host.Host
+}
+
+// HandlePeerFound now we will try to connect dynamically
+func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
+	fmt.Printf("discovered new peer %s\n", pi.ID)
+	err := n.h.Connect(context.Background(), pi)
+	if err != nil {
+		fmt.Printf("error connecting to peer %s: %s\n", pi.ID, err)
+	}
+}
+
+// DiscoveryServiceTag tag for notifying system
+const DiscoveryServiceTag = "FileSharingNetwork-pubsub"
+const DiscoveryInterval = time.Hour
+
+func setupDiscovery(h host.Host) error {
+	// setup mDNS discovery to find local peers
+	s := mdns2.NewMdnsService(h, DiscoveryServiceTag, &discoveryNotifee{h: h})
+	return s.Start()
+}
+
+// Discoverr :this function is to discover peer with the help of dht
+// dht library it's not only for hashing peer also contain routing
+// rendezvous is like the point you find others node (rendezvous point)
+func Discoverr(ctx context.Context, h host.Host, dht *dht.IpfsDHT, rendezvous string) {
+	//var disc discovery.Discovery
+	config := parseFlags()
+	//this is from routing file you can check the routing.go under discovery directory
+	routingDiscovery := drouting.NewRoutingDiscovery(dht)
+	//same thing
+	dutil.Advertise(ctx, routingDiscovery, config.RendezvousString)
+	fmt.Println("Successfully announced!")
+
+	// Now, look for others who have announced
+	// This is like your friend telling you the location to meet you.
+	fmt.Println("Searching for other peers...")
+	//discoveryRouting := routing.NewDiscoveryRouting(disc)
+
+	//_, err2 := routingDiscovery.Advertise(ctx, rendezvous)
+	//if err2 != nil {
+	//	log.Printf("Error advertising rendezvous: %v", err2)
+	//	return
+	//}
+	//to find peer check routing.go
+	peerChan, _ := routingDiscovery.FindPeers(ctx, config.RendezvousString)
+	//thee is problem here in the for loop it will give just when peer
+	// it need some functionality from time library
+	for peer := range peerChan {
+		if peer.ID == h.ID() {
+			continue
+		}
+
+		fmt.Println("peer ID: ", peer.ID, "\nhostID: ", h.ID())
+		fmt.Println("Found peer:", peer)
+
+		fmt.Println("Connecting to:", peer)
+
+		fmt.Println("Connected to:", peer)
+	}
+}
+
+// this function is responsible for configuring the node with command-line
+// essentially to specify bunch of characteristic for the node
+
+func parseFlags() *Config {
+	c := &Config{}
+
+	flag.StringVar(&c.RendezvousString, "rendezvous", "FileSharingNetwork", "Unique string to identify group of nodes. Share this with your friends to let them connect with you")
+	flag.StringVar(&c.listenHost, "host", "0.0.0.0", "The bootstrap node host listen address\n")
+	flag.StringVar(&c.ProtocolID, "pid", "/file/1.1.0", "Sets a protocol id for stream headers")
+	flag.IntVar(&c.listenPort, "port", 4001, "node listen port")
+	flag.StringVar(&c.dType, "dType", "mdns", "Discovery type")
+	flag.Var(&c.BootstrapPeers, "peer", "Adds a peer multiaddress to the bootstrap list")
+
+	flag.Parse()
+	if len(c.BootstrapPeers) == 0 {
+		c.BootstrapPeers = dht.DefaultBootstrapPeers
+	}
+
+	if err := c.validateConfig(); err != nil {
+		panic(err)
+	}
+	return c
+}
+
+type Config struct {
+	RendezvousString string
+	ProtocolID       string
+	BootstrapPeers   addrList
+	listenHost       string
+	listenPort       int
+	dType            string
+}
+type addrList []multiaddr.Multiaddr
+
+func (al *addrList) String() string {
+	strs := make([]string, len(*al))
+	for i, addr := range *al {
+		strs[i] = addr.String()
+	}
+	return strings.Join(strs, ",")
+}
+
+func (al *addrList) Set(value string) error {
+	addr, err := multiaddr.NewMultiaddr(value)
+	if err != nil {
+		return err
+	}
+	*al = append(*al, addr)
+	return nil
+}
+
+// just validation function
+func (c *Config) validateConfig() error {
+	if c.dType != "mdns" && c.dType != "dht" {
+		return fmt.Errorf("Invalid discovery type %v . Please use either 'mdns' or 'dht'", c.dType)
+	}
+	return nil
 }
