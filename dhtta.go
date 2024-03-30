@@ -5,6 +5,7 @@ import (
 	"context"
 	"flag"
 	"fmt"
+	plog "github.com/Mina218/FileSharingNetwork/fileshare"
 	"github.com/libp2p/go-libp2p"
 	"github.com/libp2p/go-libp2p-kad-dht"
 	pubsub "github.com/libp2p/go-libp2p-pubsub"
@@ -173,6 +174,7 @@ func main() {
 	// this node a node created with default parameter so when i run code
 	// discover function found it
 	_ = SourceNode()
+	_ = SourceNode()
 	//create dht
 	dht, err := NewDh(ctx, sourceNode, bootstrapPeers)
 	if err != nil {
@@ -269,23 +271,59 @@ func Discoverr(ctx context.Context, h host.Host, dht *dht.IpfsDHT, rendezvous st
 	//	log.Printf("Error advertising rendezvous: %v", err2)
 	//	return
 	//}
-	//to find peer check routing.go
-	peerChan, _ := routingDiscovery.FindPeers(ctx, config.RendezvousString)
-	//thee is problem here in the for loop it will give just when peer
-	// it need some functionality from time library
-	for peer := range peerChan {
-		if peer.ID == h.ID() {
-			continue
+	//to find peer ,check routing.go
+	connectedPeers := []peer.AddrInfo{}
+	constat := plog.OpenConnectionStatusLog()
+	peerlog := plog.OpenPeerConnectionLog()
+	ticker := time.NewTicker(5 * time.Second)
+	defer ticker.Stop()
+
+	isAlreadyConnected := false
+	for len(connectedPeers) < 20 {
+		select {
+		case <-ctx.Done():
+			return
+		case <-ticker.C:
+			fmt.Fprintln(constat, "Currently connected to", len(connectedPeers), "out of 5 [for service", config.RendezvousString, "]")
+			fmt.Fprintln(constat, "TOTAL CONNECTIONS : ", len(h.Network().Conns()))
+			peerChannel, err := routingDiscovery.FindPeers(ctx, config.RendezvousString)
+			if err != nil {
+				fmt.Println("Error while finding some peers for service :", config.RendezvousString)
+			} else {
+				fmt.Fprintln(constat, "Successful in finding some peers")
+			}
+			for peerAddr := range peerChannel {
+
+				if peerAddr.ID == h.ID() {
+					continue
+				}
+				for _, connPeers := range connectedPeers {
+					if connPeers.ID == peerAddr.ID {
+						fmt.Fprintln(peerlog, "Already have a connection with ", peerAddr.ID)
+						isAlreadyConnected = true
+						break
+					}
+				}
+				if isAlreadyConnected {
+					isAlreadyConnected = false
+					continue
+				}
+
+				err := h.Connect(ctx, peerAddr)
+				if err != nil {
+					fmt.Fprintln(peerlog, "Error while connecting to peer ", peerAddr.ID)
+				} else {
+					fmt.Println("Successful in connecting to peer :", peerAddr.ID[len(peerAddr.ID)-6:len(peerAddr.ID)])
+					connectedPeers = append(connectedPeers, peerAddr)
+					fmt.Println("Currently connected to", len(connectedPeers), "out of 5 [for service", config.RendezvousString, "]")
+				}
+			}
 		}
-
-		fmt.Println("peer ID: ", peer.ID, "\nhostID: ", h.ID())
-		fmt.Println("Found peer:", peer)
-
-		fmt.Println("Connecting to:", peer)
-
-		fmt.Println("Connected to:", peer)
 	}
+
 }
+
+const dhtTTL = 5 * time.Minute
 
 // this function is responsible for configuring the node with command-line
 // essentially to specify bunch of characteristic for the node
