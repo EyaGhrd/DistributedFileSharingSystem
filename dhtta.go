@@ -1,28 +1,22 @@
 package main
 
 import (
-	"bufio"
 	"context"
-	"flag"
+	//"crypto/rand"
 	"fmt"
-	plog "github.com/Mina218/FileSharingNetwork/fileshare"
+
+	"github.com/Mina218/FileSharingNetwork/p2pnet"
 	"github.com/libp2p/go-libp2p"
-	"github.com/libp2p/go-libp2p-kad-dht"
-	pubsub "github.com/libp2p/go-libp2p-pubsub"
-	_ "github.com/libp2p/go-libp2p/core/discovery"
+
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
-	_ "github.com/libp2p/go-libp2p/core/routing"
-	mdns2 "github.com/libp2p/go-libp2p/p2p/discovery/mdns"
-	drouting "github.com/libp2p/go-libp2p/p2p/discovery/routing"
-	dutil "github.com/libp2p/go-libp2p/p2p/discovery/util"
 	"github.com/multiformats/go-multiaddr"
-
 	"log"
-	"os"
-	"strings"
 	"sync"
 	"time"
+
+	dht "github.com/libp2p/go-libp2p-kad-dht"
+	"strings"
 )
 
 func SourceNode() host.Host {
@@ -111,95 +105,33 @@ func createNodeWithMultiaddr(ctx context.Context, listenAddress multiaddr.Multia
 }
 
 func main() {
-	ctx := context.Background()
 
-	sourceNode := SourceNode()
-	println("-- SOURCE NODE INFORMATION --")
-	printNodeID(sourceNode)
-	printNodeAddresses(sourceNode)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	//r := rand.Reader
 
-	targetNode := DestinationNode()
-	println("-- TARGET NODE INFORMATION --")
-	printNodeID(targetNode)
-	printNodeAddresses(targetNode)
+	//	prvKey, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, r)
+	config := p2pnet.ParseFlags()
 
-	connectToNodeFromSource(sourceNode, targetNode)
-	fmt.Printf("##########################\n")
+	// Create a new libp2p Host
+	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.ListenHost, config.ListenPort))
 
-	// view host details and addresses
-	fmt.Printf("host ID %s\n", sourceNode.ID())
-	fmt.Printf("following are the assigned addresses\n")
-	for _, addr := range sourceNode.Addrs() {
-		fmt.Printf("%s\n", addr.String())
-	}
-	fmt.Printf("\n")
-
-	// create a new PubSub service using the GossipSub router
-
-	_, err := pubsub.NewGossipSub(ctx, sourceNode)
+	h, err := libp2p.New(
+		libp2p.ListenAddrs(sourceMultiAddr),
+	)
 	if err != nil {
 		panic(err)
 	}
-	var bootstrapPeers []multiaddr.Multiaddr
-	//this are multi-address string
-	// the first thing node node whe it join to the network it connect to well-known nodes
-	// their name is bootstrap nodes
-	Adress := []multiaddr.Multiaddr{
-		multiaddrString("/ip4/172.17.0.1/tcp/4001"),
-		multiaddrString("/ip4/172.17.0.1/tcp/4000"),
-		multiaddrString("/ip4/172.17.0.1/tcp/5000"),
-		multiaddrString("/ip4/172.17.0.1/tcp/4500"),
-		multiaddrString("/ip4/172.17.0.1/tcp/4600"),
-	}
-	for _, addr := range Adress {
-		node, err := createNodeWithMultiaddr(ctx, addr)
-		if err != nil {
-			panic(err)
-		}
-		fmt.Printf("*********\n")
-		//so to add them to dht table i should create node with given address
-		//and then combine the address with bootstrap node id
-		peerAddr := addr.Encapsulate(multiaddrString(fmt.Sprintf("/ipfs/%s", node.ID())))
+	fmt.Println("Host created. ID:", h.ID())
 
-		// Append the bootstrap peer address to the list
-		bootstrapPeers = append(bootstrapPeers, peerAddr)
-		// Print the ID and addresses of the created node
-		fmt.Println("Node ID:", node.ID())
-		fmt.Println("Node Addresses:")
-		for _, addr := range node.Addrs() {
-			fmt.Println(addr)
-		}
-		fmt.Println("---------------------------------------")
-	}
-	// this node a node created with default parameter so when i run code
-	// discover function found it
-	_ = SourceNode()
-	_ = SourceNode()
-	//create dht
-	dht, err := NewDh(ctx, sourceNode, bootstrapPeers)
-	if err != nil {
-		panic(err)
-	}
-	//the rendezvous is FileSharingNetwork
-	go Discoverr(ctx, targetNode, dht, "FileSharingNetwork")
+	//// Set up a DHT for peer discovery
+	kad_dht := p2pnet.InitDHT(ctx, h)
+	p2pnet.BootstrapDHT(ctx, h, kad_dht)
 
-	if err := setupDiscovery(sourceNode); err != nil {
-		panic(err)
-	}
-	ps, err := pubsub.NewGossipSub(context.Background(), sourceNode)
-	if err != nil {
-		log.Fatal(err)
-	}
-	room := "FileSharingNetwork"
-	topic, err := ps.Join(room)
-	if err != nil {
-		panic(err)
-	}
-	publish(ctx, topic)
+	p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
 
-	fmt.Printf("##########################\n")
+	// Wait for shutdown signal do nooottttttt shutdowwwn by your selffffff dangeeerrr
 
-	println(fmt.Sprintf("Source node peers: %d", countSourceNodePeers(sourceNode)))
 }
 func multiaddrString(addr string) multiaddr.Multiaddr {
 	maddr, err := multiaddr.NewMultiaddr(addr)
@@ -209,177 +141,4 @@ func multiaddrString(addr string) multiaddr.Multiaddr {
 	return maddr
 }
 
-// this is not necessary now
-func publish(ctx context.Context, topic *pubsub.Topic) {
-	for {
-		scanner := bufio.NewScanner(os.Stdin)
-		for scanner.Scan() {
-			fmt.Printf("enter message to publish: \n")
-
-			msg := scanner.Text()
-			if len(msg) != 0 {
-				// publish message to topic
-				bytes := []byte(msg)
-				topic.Publish(ctx, bytes)
-			}
-		}
-	}
-}
-
-type discoveryNotifee struct {
-	h host.Host
-}
-
-// HandlePeerFound now we will try to connect dynamically
-func (n *discoveryNotifee) HandlePeerFound(pi peer.AddrInfo) {
-	fmt.Printf("discovered new peer %s\n", pi.ID)
-	err := n.h.Connect(context.Background(), pi)
-	if err != nil {
-		fmt.Printf("error connecting to peer %s: %s\n", pi.ID, err)
-	}
-}
-
-// DiscoveryServiceTag tag for notifying system
-const DiscoveryServiceTag = "FileSharingNetwork-pubsub"
-const DiscoveryInterval = time.Hour
-
-func setupDiscovery(h host.Host) error {
-	// setup mDNS discovery to find local peers
-	s := mdns2.NewMdnsService(h, DiscoveryServiceTag, &discoveryNotifee{h: h})
-	return s.Start()
-}
-
-// Discoverr :this function is to discover peer with the help of dht
-// dht library it's not only for hashing peer also contain routing
-// rendezvous is like the point you find others node (rendezvous point)
-func Discoverr(ctx context.Context, h host.Host, dht *dht.IpfsDHT, rendezvous string) {
-	//var disc discovery.Discovery
-	config := parseFlags()
-	//this is from routing file you can check the routing.go under discovery directory
-	routingDiscovery := drouting.NewRoutingDiscovery(dht)
-	//same thing
-	dutil.Advertise(ctx, routingDiscovery, config.RendezvousString)
-	fmt.Println("Successfully announced!")
-
-	// Now, look for others who have announced
-	// This is like your friend telling you the location to meet you.
-	fmt.Println("Searching for other peers...")
-	//discoveryRouting := routing.NewDiscoveryRouting(disc)
-
-	//_, err2 := routingDiscovery.Advertise(ctx, rendezvous)
-	//if err2 != nil {
-	//	log.Printf("Error advertising rendezvous: %v", err2)
-	//	return
-	//}
-	//to find peer ,check routing.go
-	connectedPeers := []peer.AddrInfo{}
-	constat := plog.OpenConnectionStatusLog()
-	peerlog := plog.OpenPeerConnectionLog()
-	ticker := time.NewTicker(5 * time.Second)
-	defer ticker.Stop()
-
-	isAlreadyConnected := false
-	for len(connectedPeers) < 20 {
-		select {
-		case <-ctx.Done():
-			return
-		case <-ticker.C:
-			fmt.Fprintln(constat, "Currently connected to", len(connectedPeers), "out of 5 [for service", config.RendezvousString, "]")
-			fmt.Fprintln(constat, "TOTAL CONNECTIONS : ", len(h.Network().Conns()))
-			peerChannel, err := routingDiscovery.FindPeers(ctx, config.RendezvousString)
-			if err != nil {
-				fmt.Println("Error while finding some peers for service :", config.RendezvousString)
-			} else {
-				fmt.Fprintln(constat, "Successful in finding some peers")
-			}
-			for peerAddr := range peerChannel {
-
-				if peerAddr.ID == h.ID() {
-					continue
-				}
-				for _, connPeers := range connectedPeers {
-					if connPeers.ID == peerAddr.ID {
-						fmt.Fprintln(peerlog, "Already have a connection with ", peerAddr.ID)
-						isAlreadyConnected = true
-						break
-					}
-				}
-				if isAlreadyConnected {
-					isAlreadyConnected = false
-					continue
-				}
-
-				err := h.Connect(ctx, peerAddr)
-				if err != nil {
-					fmt.Fprintln(peerlog, "Error while connecting to peer ", peerAddr.ID)
-				} else {
-					fmt.Println("Successful in connecting to peer :", peerAddr.ID[len(peerAddr.ID)-6:len(peerAddr.ID)])
-					connectedPeers = append(connectedPeers, peerAddr)
-					fmt.Println("Currently connected to", len(connectedPeers), "out of 5 [for service", config.RendezvousString, "]")
-				}
-			}
-		}
-	}
-
-}
-
 const dhtTTL = 5 * time.Minute
-
-// this function is responsible for configuring the node with command-line
-// essentially to specify bunch of characteristic for the node
-
-func parseFlags() *Config {
-	c := &Config{}
-
-	flag.StringVar(&c.RendezvousString, "rendezvous", "FileSharingNetwork", "Unique string to identify group of nodes. Share this with your friends to let them connect with you")
-	flag.StringVar(&c.listenHost, "host", "0.0.0.0", "The bootstrap node host listen address\n")
-	flag.StringVar(&c.ProtocolID, "pid", "/file/1.1.0", "Sets a protocol id for stream headers")
-	flag.IntVar(&c.listenPort, "port", 4001, "node listen port")
-	flag.StringVar(&c.dType, "dType", "mdns", "Discovery type")
-	flag.Var(&c.BootstrapPeers, "peer", "Adds a peer multiaddress to the bootstrap list")
-
-	flag.Parse()
-	if len(c.BootstrapPeers) == 0 {
-		c.BootstrapPeers = dht.DefaultBootstrapPeers
-	}
-
-	if err := c.validateConfig(); err != nil {
-		panic(err)
-	}
-	return c
-}
-
-type Config struct {
-	RendezvousString string
-	ProtocolID       string
-	BootstrapPeers   addrList
-	listenHost       string
-	listenPort       int
-	dType            string
-}
-type addrList []multiaddr.Multiaddr
-
-func (al *addrList) String() string {
-	strs := make([]string, len(*al))
-	for i, addr := range *al {
-		strs[i] = addr.String()
-	}
-	return strings.Join(strs, ",")
-}
-
-func (al *addrList) Set(value string) error {
-	addr, err := multiaddr.NewMultiaddr(value)
-	if err != nil {
-		return err
-	}
-	*al = append(*al, addr)
-	return nil
-}
-
-// just validation function
-func (c *Config) validateConfig() error {
-	if c.dType != "mdns" && c.dType != "dht" {
-		return fmt.Errorf("Invalid discovery type %v . Please use either 'mdns' or 'dht'", c.dType)
-	}
-	return nil
-}
