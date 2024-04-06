@@ -4,10 +4,10 @@ import (
 	"context"
 	//"crypto/rand"
 	"fmt"
-
 	"github.com/Mina218/FileSharingNetwork/p2pnet"
 	"github.com/libp2p/go-libp2p"
 
+	structure "github.com/Mina218/FileSharingNetwork/structure"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
@@ -131,6 +131,17 @@ func main() {
 	p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
 
 	// Wait for shutdown signal do nooottttttt shutdowwwn by your selffffff dangeeerrr
+
+	filePaths, err := structure.ListFiles()
+	if err != nil {
+		fmt.Println("Error scanning file system:", err)
+		return
+	}
+
+	fmt.Println("Files found:")
+	for _, path := range filePaths {
+		fmt.Println(path)
+	}
 
 }
 func multiaddrString(addr string) multiaddr.Multiaddr {
