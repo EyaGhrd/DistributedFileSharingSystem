@@ -3,10 +3,10 @@ module github.com/Mina218/FileSharingNetwork
 go 1.22.1
 
 require (
-	github.com/libp2p/go-libp2p v0.33.1
+	github.com/libp2p/go-libp2p v0.33.2
 	github.com/libp2p/go-libp2p-kad-dht v0.25.2
 	github.com/libp2p/go-libp2p-pubsub v0.10.0
-	github.com/multiformats/go-multiaddr v0.12.2
+	github.com/multiformats/go-multiaddr v0.12.3
 )
 
 require (
@@ -54,11 +54,13 @@ require (
 	github.com/libp2p/go-libp2p-kbucket v0.6.3 // indirect
 	github.com/libp2p/go-libp2p-record v0.2.0 // indirect
 	github.com/libp2p/go-libp2p-routing-helpers v0.7.2 // indirect
+	github.com/libp2p/go-libp2p-testing v0.12.0 // indirect
 	github.com/libp2p/go-msgio v0.3.0 // indirect
 	github.com/libp2p/go-nat v0.2.0 // indirect
 	github.com/libp2p/go-netroute v0.2.1 // indirect
 	github.com/libp2p/go-reuseport v0.4.0 // indirect
 	github.com/libp2p/go-yamux/v4 v4.0.1 // indirect
+	github.com/libp2p/zeroconf/v2 v2.2.0 // indirect
 	github.com/marten-seemann/tcp v0.0.0-20210406111302-dfbc87cc63fd // indirect
 	github.com/mattn/go-isatty v0.0.20 // indirect
 	github.com/miekg/dns v1.1.58 // indirect

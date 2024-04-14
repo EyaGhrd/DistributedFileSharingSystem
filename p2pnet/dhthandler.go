@@ -17,6 +17,7 @@ func BootstrapDHT(ctx context.Context, host host.Host, kad_dht *dht.IpfsDHT) {
 	}
 	for _, bootstrapPeers := range dht.GetDefaultBootstrapPeerAddrInfos() {
 		err := host.Connect(ctx, bootstrapPeers)
+		fmt.Println("@", bootstrapPeers.Addrs)
 		if err != nil {
 			fmt.Println("Error while connecting to :", bootstrapPeers.ID)
 		} else {
@@ -39,3 +40,9 @@ func HandleDHT(ctx context.Context, host host.Host) *dht.IpfsDHT {
 	BootstrapDHT(ctx, host, kad_dht)
 	return kad_dht
 }
+
+//func (D DHT) initDiscovery(ctx context.Context, host host.Host, kad_dht *dht.IpfsDHT, config *Config) error {
+//	HandleDHT(ctx, host)
+//	DiscoverPeers(ctx, host, config, kad_dht)
+//	return nil
+//}
