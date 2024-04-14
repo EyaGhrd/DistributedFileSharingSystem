@@ -2,21 +2,20 @@ package main
 
 import (
 	"context"
+	"crypto/rand"
+	"github.com/libp2p/go-libp2p/core/crypto"
 	//"crypto/rand"
 	"fmt"
 	"github.com/Mina218/FileSharingNetwork/p2pnet"
 	"github.com/libp2p/go-libp2p"
 
-	structure "github.com/Mina218/FileSharingNetwork/structure"
+	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"github.com/multiformats/go-multiaddr"
 	"log"
-	"sync"
-	"time"
-
-	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"strings"
+	"sync"
 )
 
 func SourceNode() host.Host {
@@ -104,25 +103,46 @@ func createNodeWithMultiaddr(ctx context.Context, listenAddress multiaddr.Multia
 	return node, nil
 }
 
+func createNode(config *p2pnet.Config) (host.Host, error) {
+	fmt.Printf("[*] Listening on: %s with port: %d\n", config.ListenHost, config.ListenPort)
+
+	r := rand.Reader
+
+	// Creates a new RSA key pair for this host.
+	prvKey, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, r)
+	if err != nil {
+		return nil, err
+	}
+
+	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.ListenHost, config.ListenPort))
+
+	host, err := libp2p.New(
+		libp2p.ListenAddrs(sourceMultiAddr),
+		libp2p.Identity(prvKey),
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	fmt.Println("host ID: ", host.ID())
+	fmt.Println("host address: ", host.Addrs())
+	return host, nil
+}
 func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 	//r := rand.Reader
-
 	//	prvKey, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, r)
 	config := p2pnet.ParseFlags()
 
-	// Create a new libp2p Host
-	sourceMultiAddr, _ := multiaddr.NewMultiaddr(fmt.Sprintf("/ip4/%s/tcp/%d", config.ListenHost, config.ListenPort))
-
-	h, err := libp2p.New(
-		libp2p.ListenAddrs(sourceMultiAddr),
-	)
+	h, err := createNode(config)
 	if err != nil {
 		panic(err)
 	}
+
 	fmt.Println("Host created. ID:", h.ID())
+	//h.SetStreamHandler(protocol.ID(config.ProtocolID), p2pnet.HandleStream)
 
 	//// Set up a DHT for peer discovery
 	kad_dht := p2pnet.InitDHT(ctx, h)
@@ -130,18 +150,21 @@ func main() {
 
 	p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
 
-	// Wait for shutdown signal do nooottttttt shutdowwwn by your selffffff dangeeerrr
+	// Index each file in the directory
 
-	filePaths, err := structure.ListFiles()
-	if err != nil {
-		fmt.Println("Error scanning file system:", err)
-		return
-	}
+	// Wait for shutdown signal do not shutdown by your self danger
 
-	fmt.Println("Files found:")
-	for _, path := range filePaths {
-		fmt.Println(path)
-	}
+	//filePaths, err := structure.ListFiles()
+	//if err != nil {
+	//	fmt.Println("Error scanning file system:", err)
+	//	return
+	//}
+	//
+	//fmt.Println("Files found:")
+	//for _, path := range filePaths {
+	//	fmt.Println(path)
+	//}
+	//host.SetStreamHandler(protocol.ID(config.ProtocolID), p2pnet.HandleStream)
 
 }
 func multiaddrString(addr string) multiaddr.Multiaddr {
@@ -152,4 +175,11 @@ func multiaddrString(addr string) multiaddr.Multiaddr {
 	return maddr
 }
 
-const dhtTTL = 5 * time.Minute
+//	type Discovery interface {
+//		initDiscovery(host host.Host, config *p2pnet.Config) error
+//	}
+//type discoveryNotifee struct {
+//	PeerChan chan peer.AddrInfo
+//}
+
+// interface to be called when new  peer is found
