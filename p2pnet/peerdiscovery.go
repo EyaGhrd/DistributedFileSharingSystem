@@ -3,6 +3,9 @@ package p2pnet
 import (
 	"context"
 	"fmt"
+	stream "github.com/Mina218/FileSharingNetwork/stream"
+	"github.com/libp2p/go-libp2p/core/protocol"
+	"os"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -55,19 +58,18 @@ func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht 
 
 				// Connect to the peer
 				fmt.Println("Found peerAdd:", peerAdd.ID)
-				//stream, err := host.NewStream(ctx, peerAdd.ID, protocol.ID(config.ProtocolID))
+				streams, err := host.NewStream(ctx, peerAdd.ID, protocol.ID(config.ProtocolID))
 				if err != nil {
-					fmt.Println("Connection failed:", err)
+					//fmt.Println("Connection failed:", err)
 					continue
 				} else {
+					stream.SendToStream(streams)
 
-					//go writeDataToStream(stream)
-					//go readDataFromStream(stream)
 				}
 
 				err = host.Connect(ctx, peerAdd)
 				if err != nil {
-					fmt.Println("Connecting failed to", peerAdd.ID, ":", err)
+					//fmt.Println("Connecting failed to", peerAdd.ID, ":", err)
 					continue
 				}
 
@@ -75,13 +77,41 @@ func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht 
 
 				// Handle the connection logic here
 				if err != nil {
-					fmt.Println("Connection failed:", err)
+					//fmt.Println("Connection failed:", err)
 					continue
 				} else {
 					fmt.Println("Connected to:", peerAdd.ID)
+					stream.HandleInputStream(streams)
+					fileName := "/home/amina/Downloads/peerconnlog.txt"
+					file := OpenFileStatusLog()
+					stream.HandleIncomingStreams(ctx, host, file)
+
+					stream.ReceivedFromStream(streams, fileName, "txt", file, 1502)
+
 				}
 			}
 		}
 		time.Sleep(time.Second * 5) // Adjust the sleep time as needed
 	}
+}
+
+func OpenFileStatusLog() *os.File {
+	var filenameFileShare string = "log/filesharelog"
+	var filenameConst string = "log/connectionlog"
+	i := 0
+	for {
+		_, err := os.Stat(filenameFileShare + fmt.Sprintf("%d", i) + ".txt")
+		if err != nil {
+			break
+
+		} else {
+			i++
+		}
+	}
+	file, err := os.Create(filenameFileShare + fmt.Sprintf("%d", i) + ".txt")
+	if err != nil {
+		fmt.Println("Error while opening the file", filenameConst)
+	}
+	fmt.Println("Using [", filenameFileShare, "] for connection status log")
+	return file
 }

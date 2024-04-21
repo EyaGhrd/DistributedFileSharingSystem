@@ -16,7 +16,7 @@ import (
 	"github.com/libp2p/go-libp2p/core/protocol"
 )
 
-var pid string = "/pid/file/share"
+var pid string = "/file/1.1.0"
 var IsBroadcaster bool = false
 var isAlreadyRequested bool = false
 

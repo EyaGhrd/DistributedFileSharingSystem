@@ -9,9 +9,9 @@ import (
 	"time"
 )
 
-var filename_send string = ""
+var filename_send string = "/home/amina/Downloads/peerconnlog.txt"
 
-func sendToStream(str network.Stream) {
+func SendToStream(str network.Stream) {
 	fmt.Println("Sending file to ", str.Conn().RemotePeer())
 	filesize, err := getByteSize(filename_send)
 	if err != nil {

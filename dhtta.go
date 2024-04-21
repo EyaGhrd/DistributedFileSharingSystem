@@ -3,7 +3,9 @@ package main
 import (
 	"context"
 	"crypto/rand"
+	"github.com/Mina218/FileSharingNetwork/stream"
 	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	//"crypto/rand"
 	"fmt"
 	"github.com/Mina218/FileSharingNetwork/p2pnet"
@@ -132,6 +134,7 @@ func main() {
 
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
+
 	//r := rand.Reader
 	//	prvKey, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, r)
 	config := p2pnet.ParseFlags()
@@ -140,31 +143,14 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-
+	h.SetStreamHandler(protocol.ID(config.ProtocolID), stream.HandleInputStream)
 	fmt.Println("Host created. ID:", h.ID())
-	//h.SetStreamHandler(protocol.ID(config.ProtocolID), p2pnet.HandleStream)
 
 	//// Set up a DHT for peer discovery
 	kad_dht := p2pnet.InitDHT(ctx, h)
 	p2pnet.BootstrapDHT(ctx, h, kad_dht)
 
 	p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
-
-	// Index each file in the directory
-
-	// Wait for shutdown signal do not shutdown by your self danger
-
-	//filePaths, err := structure.ListFiles()
-	//if err != nil {
-	//	fmt.Println("Error scanning file system:", err)
-	//	return
-	//}
-	//
-	//fmt.Println("Files found:")
-	//for _, path := range filePaths {
-	//	fmt.Println(path)
-	//}
-	//host.SetStreamHandler(protocol.ID(config.ProtocolID), p2pnet.HandleStream)
 
 }
 func multiaddrString(addr string) multiaddr.Multiaddr {
@@ -174,12 +160,3 @@ func multiaddrString(addr string) multiaddr.Multiaddr {
 	}
 	return maddr
 }
-
-//	type Discovery interface {
-//		initDiscovery(host host.Host, config *p2pnet.Config) error
-//	}
-//type discoveryNotifee struct {
-//	PeerChan chan peer.AddrInfo
-//}
-
-// interface to be called when new  peer is found

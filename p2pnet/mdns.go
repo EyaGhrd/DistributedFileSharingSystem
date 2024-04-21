@@ -4,51 +4,48 @@ import (
 	"bufio"
 	"fmt"
 	"github.com/libp2p/go-libp2p/core/network"
-	"io"
+	"log"
+	"os"
 )
 
 func HandleStream(stream network.Stream) {
-	fmt.Println("Got a new stream!")
+	log.Println("Got a new stream!")
 
-	// Creating a buffer stream for non-blocking read and write.
+	// Create a buffer stream for non-blocking read and write.
+	rw := bufio.NewReadWriter(bufio.NewReader(stream), bufio.NewWriter(stream))
 
-	go readDataFromStream(stream)
-	go writeDataToStream(stream)
+	go readDataFromStream(rw)
+	go writeDataToStream(rw)
 }
 
-func readDataFromStream(stream network.Stream) {
-	reader := bufio.NewReader(stream)
+func readDataFromStream(rw *bufio.ReadWriter) {
+	stdReader := bufio.NewReader(os.Stdin)
 
-	// Read data from the stream
-	data, err := reader.ReadString('\n')
-	if err != nil {
-		if err == io.EOF {
-			fmt.Println("End of stream reached")
-		} else {
-			fmt.Println("Error reading from stream:", err)
+	for {
+		fmt.Print("> ")
+		sendData, err := stdReader.ReadString('\n')
+		if err != nil {
+			log.Println(err)
+			return
 		}
-		return
-	}
 
-	// Print the received data
-	fmt.Println("Received data:", data)
+		rw.WriteString(fmt.Sprintf("%s\n", sendData))
+		rw.Flush()
+	}
 }
 
-func writeDataToStream(stream network.Stream) {
-	writer := bufio.NewWriter(stream)
+func writeDataToStream(rw *bufio.ReadWriter) {
+	stdReader := bufio.NewReader(os.Stdin)
 
-	// Write data to the stream
-	data := "Hello, world!\n"
-	_, err := writer.WriteString(data)
-	if err != nil {
-		fmt.Println("Error writing to stream:", err)
-		return
-	}
+	for {
+		fmt.Print("> ")
+		sendData, err := stdReader.ReadString('\n')
+		if err != nil {
+			log.Println(err)
+			return
+		}
 
-	// Flush the writer to ensure data is sent
-	err = writer.Flush()
-	if err != nil {
-		fmt.Println("Error flushing writer:", err)
-		return
+		rw.WriteString(fmt.Sprintf("%s\n", sendData))
+		rw.Flush()
 	}
 }

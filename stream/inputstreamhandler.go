@@ -8,5 +8,5 @@ import (
 
 func HandleInputStream(stream network.Stream) {
 	fmt.Println("New incoming stream detected")
-	go sendToStream(stream)
+	go SendToStream(stream)
 }
