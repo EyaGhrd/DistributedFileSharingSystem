@@ -163,7 +163,7 @@ func requestFile(ctx context.Context, host host.Host, filename string, filetype 
 	if err != nil {
 		fmt.Fprintln(file, "Error while handling file request stream")
 	}
-	ReceivedFromStream(stream, filename, filetype, file, size)
+	ReceivedFromStream(stream, filename, filetype, size)
 }
 
 func writeToSubscription(ctx context.Context, host host.Host, pubSubTopic *pubsub.Topic) {

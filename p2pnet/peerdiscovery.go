@@ -5,7 +5,6 @@ import (
 	"fmt"
 	stream "github.com/Mina218/FileSharingNetwork/stream"
 	"github.com/libp2p/go-libp2p/core/protocol"
-	"os"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
@@ -63,7 +62,6 @@ func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht 
 					//fmt.Println("Connection failed:", err)
 					continue
 				} else {
-					stream.SendToStream(streams)
 
 				}
 
@@ -74,44 +72,16 @@ func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht 
 				}
 
 				fmt.Println("Connecting to:", peerAdd.ID)
-
-				// Handle the connection logic here
 				if err != nil {
 					//fmt.Println("Connection failed:", err)
 					continue
 				} else {
 					fmt.Println("Connected to:", peerAdd.ID)
 					stream.HandleInputStream(streams)
-					fileName := "/home/amina/Downloads/peerconnlog.txt"
-					file := OpenFileStatusLog()
-					stream.HandleIncomingStreams(ctx, host, file)
-
-					stream.ReceivedFromStream(streams, fileName, "txt", file, 1502)
-
+					stream.HandleIncomingStreams(ctx, host)
 				}
 			}
 		}
 		time.Sleep(time.Second * 5) // Adjust the sleep time as needed
 	}
-}
-
-func OpenFileStatusLog() *os.File {
-	var filenameFileShare string = "log/filesharelog"
-	var filenameConst string = "log/connectionlog"
-	i := 0
-	for {
-		_, err := os.Stat(filenameFileShare + fmt.Sprintf("%d", i) + ".txt")
-		if err != nil {
-			break
-
-		} else {
-			i++
-		}
-	}
-	file, err := os.Create(filenameFileShare + fmt.Sprintf("%d", i) + ".txt")
-	if err != nil {
-		fmt.Println("Error while opening the file", filenameConst)
-	}
-	fmt.Println("Using [", filenameFileShare, "] for connection status log")
-	return file
 }
