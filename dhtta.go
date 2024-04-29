@@ -3,13 +3,12 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"github.com/Mina218/FileSharingNetwork/stream"
-	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/protocol"
-	//"crypto/rand"
 	"fmt"
 	"github.com/Mina218/FileSharingNetwork/p2pnet"
+	"github.com/Mina218/FileSharingNetwork/stream"
 	"github.com/libp2p/go-libp2p"
+	"github.com/libp2p/go-libp2p/core/crypto"
+	"github.com/libp2p/go-libp2p/core/protocol"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
@@ -19,6 +18,8 @@ import (
 	"strings"
 	"sync"
 )
+
+var peerChan chan peer.AddrInfo
 
 func SourceNode() host.Host {
 	node, err := libp2p.New()
@@ -97,7 +98,6 @@ func printNodeAddresses(host host.Host) {
 	println(fmt.Sprintf("Multiaddresses: %s", strings.Join(addressesString, ", ")))
 }
 func createNodeWithMultiaddr(ctx context.Context, listenAddress multiaddr.Multiaddr) (host.Host, error) {
-	// Create a new libp2p node specifying the listen address
 	node, err := libp2p.New(libp2p.ListenAddrStrings(listenAddress.String()))
 	if err != nil {
 		return nil, err
@@ -131,7 +131,7 @@ func createNode(config *p2pnet.Config) (host.Host, error) {
 	return host, nil
 }
 func main() {
-
+	peerChan = make(chan peer.AddrInfo, 100)
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
@@ -148,9 +148,10 @@ func main() {
 
 	//// Set up a DHT for peer discovery
 	kad_dht := p2pnet.InitDHT(ctx, h)
-	p2pnet.BootstrapDHT(ctx, h, kad_dht)
-
-	p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
+	fmt.Println("ty sayyeb aad ", kad_dht)
+	p2pnet.BootstrapDHT(ctx, h, kad_dht, peerChan)
+	p2pnet.StartServer(peerChan)
+	//p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
 
 }
 func multiaddrString(addr string) multiaddr.Multiaddr {
