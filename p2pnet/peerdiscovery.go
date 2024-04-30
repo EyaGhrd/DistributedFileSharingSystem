@@ -260,6 +260,6 @@ func sendFileRequest(ctx context.Context, host host.Host, peerID peer.ID, fileNa
 	if err != nil {
 		return fmt.Errorf("failed to send file request to peer %s: %s", peerID, err)
 	}
-
+	//file
 	return nil
 }
