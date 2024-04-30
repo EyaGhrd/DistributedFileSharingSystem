@@ -10,3 +10,5 @@ func HandleInputStream(stream network.Stream, filename string) {
 	fmt.Println("New outcome stream detected")
 	go SendToStream(stream, filename)
 }
+
+//f

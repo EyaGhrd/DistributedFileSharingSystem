@@ -229,6 +229,7 @@ func writeToSubscription(ctx context.Context, host host.Host, pubSubTopic *pubsu
 	}
 }
 
+// f
 func HandlePubSubMessages(ctx context.Context, host host.Host, sub *pubsub.Subscription, top *pubsub.Topic) {
 	go handleInputFromSubscription(ctx, host, sub, top)
 	writeToSubscription(ctx, host, top)

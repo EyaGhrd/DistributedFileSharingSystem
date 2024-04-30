@@ -10,6 +10,7 @@ import (
 
 var path string = "/home/amina/Desktop/FileSharingNetwork/log/"
 
+// f
 func SendToStream(str network.Stream, filename string) {
 	defer str.Close() // Close the stream after sending the file
 
