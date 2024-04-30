@@ -7,4 +7,3 @@ RUN go build -v -o /usr/local/bin/app .
 EXPOSE 8001
 EXPOSE 4001
 CMD ["/usr/local/bin/app"]
-

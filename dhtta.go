@@ -3,9 +3,7 @@ package main
 import (
 	"context"
 	"crypto/rand"
-	"github.com/Mina218/FileSharingNetwork/stream"
 	"github.com/libp2p/go-libp2p/core/crypto"
-	"github.com/libp2p/go-libp2p/core/protocol"
 	//"crypto/rand"
 	"fmt"
 	"github.com/Mina218/FileSharingNetwork/p2pnet"
@@ -143,14 +141,15 @@ func main() {
 	if err != nil {
 		panic(err)
 	}
-	h.SetStreamHandler(protocol.ID(config.ProtocolID), stream.HandleInputStream)
+	//h.SetStreamHandler(protocol.ID(config.ProtocolID), stream.HandleInputStream)
 	fmt.Println("Host created. ID:", h.ID())
 
-	//// Set up a DHT for peer discovery
-	kad_dht := p2pnet.InitDHT(ctx, h)
-	p2pnet.BootstrapDHT(ctx, h, kad_dht)
+	kadDht := p2pnet.InitDHT(ctx, h)
 
-	p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
+	//dir := "/home/amina/Desktop/FileSharingNetwork/log"
+
+	p2pnet.BootstrapDHT(ctx, h, kadDht)
+	p2pnet.DiscoverPeers(ctx, h, config, kadDht)
 
 }
 func multiaddrString(addr string) multiaddr.Multiaddr {

@@ -8,7 +8,6 @@ import (
 	"github.com/minio/sha256-simd"
 	"io"
 	"os"
-	"path/filepath"
 )
 
 type TorrentFile struct {
@@ -23,42 +22,6 @@ type PieceDetails struct {
 	Hash  string `json:"hash"`
 }
 
-func ListFiles() ([]string, error) {
-	rootDir := "/home/amina/Downloads/code"
-	var listFiles []string
-	err := filepath.Walk(rootDir, func(path string, info os.FileInfo, err error) error {
-		if err != nil {
-			return err
-		}
-		if !info.IsDir() {
-			listFiles = append(listFiles, path)
-		}
-		return nil
-	})
-
-	if err != nil {
-		return nil, err
-	}
-
-	return listFiles, nil
-
-}
-
-//	func indexFile(dht *dht.IpfsDHT, ctx context.Context, host host.Host, file TorrentFile) error {
-//		//jsonBytes, err := json.Marshal(file)
-//		//if err != nil {
-//		//	fmt.Println("Error:", err)
-//		//	return err
-//		//}
-//		//if err := dht.Provide(ctx, []byte(file.Name), dht.WithValue(jsonBytes)); err != nil {
-//		//	return fmt.Errorf("error providing file metadata in DHT: %v", err)
-//		//}
-//		hash, err := calculateFileHash(file)
-//		if err != nil {
-//			panic(err)
-//		}
-//		return nil
-//	}
 func IndexFiles(dht *dht.IpfsDHT, ctx context.Context, file TorrentFile) error {
 	filePath := file.Name
 	hash, err := calculateFileHash(filePath)

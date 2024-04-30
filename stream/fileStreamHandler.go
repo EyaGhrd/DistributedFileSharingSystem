@@ -5,13 +5,19 @@ import (
 	"github.com/libp2p/go-libp2p/core/network"
 	"io"
 	"os"
+	"time"
 )
 
-var filename_send string = "/home/amina/Desktop/FileSharingNetwork/log/filesharelog.txt"
+var path string = "/home/amina/Desktop/FileSharingNetwork/log/"
 
-func SendToStream(str network.Stream) {
+func SendToStream(str network.Stream, filename string) {
 	defer str.Close() // Close the stream after sending the file
 
+	fmt.Println("give me the file you want ")
+	fmt.Scanln(&filename)
+	time.Sleep(time.Second * 500) // Adjust the sleep time as needed
+
+	filename_send := path + filename
 	fmt.Println("Sending file to", str.Conn().RemotePeer())
 	file, err := os.Open(filename_send)
 	if err != nil {

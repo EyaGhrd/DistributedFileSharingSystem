@@ -6,7 +6,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"github.com/Mina218/FileSharingNetwork/fileshare"
+	"github.com/Mina218/FileSharingNetwork/structure"
 	"os"
+	"strconv"
 	"strings"
 	"time"
 
@@ -101,57 +103,53 @@ func broadCastReply(ctx context.Context, host host.Host, topic *pubsub.Topic, br
 
 func handleInputFromSubscription(ctx context.Context, host host.Host, sub *pubsub.Subscription, topic *pubsub.Topic) {
 	inputPacket := &Packet{}
+	fileList := make([]string, 0)
 	for {
 		inputMsg, err := sub.Next(ctx)
-
 		if err != nil {
-			fmt.Println("Error while getting message from subscription")
-		} else {
-			err := json.Unmarshal(inputMsg.Data, inputPacket)
+			fmt.Println("Error while getting message from subscription:", err)
+			continue
+		}
+		err = json.Unmarshal(inputMsg.Data, inputPacket)
+		if err != nil {
+			fmt.Println("Error while unmarshalling the inputMsg from subscription:", err)
+			continue
+		}
+		switch inputPacket.Type {
+		case "filelist":
+			// Unmarshal the file list
+			err := json.Unmarshal(inputPacket.InnerContent, &fileList)
 			if err != nil {
-				fmt.Println("Error while unmarshaling the inputMsg from subscription")
-			} else {
-				if string(inputPacket.Type) == "brd" {
-					if !IsBroadcaster {
-						brdpacket := &BroadcastMsg{}
-						err := json.Unmarshal(inputPacket.InnerContent, brdpacket)
-						if err != nil {
-							fmt.Println("Error while unmarshalling brd packet")
-						} else {
-							fmt.Println("Mentor >", brdpacket.MentorNode)
-							broadCastReply(ctx, host, topic, *brdpacket)
-
-						}
-					}
-				} else if string(inputPacket.Type) == "msg" {
-					chatMsg := &Chatmessage{}
-					err := json.Unmarshal(inputPacket.InnerContent, chatMsg)
-					if err != nil {
-						fmt.Println("Error while unmarshalling msg packet")
-					} else {
-						fmt.Println("[", "BY >", inputMsg.ReceivedFrom.String()[len(inputMsg.ReceivedFrom.String())-6:], "FRM >", chatMsg.Authorname, "]", chatMsg.Messagecontent[:len(chatMsg.Messagecontent)-1])
-					}
-				} else if string(inputPacket.Type) == "rpl" {
-					rplpacket := &BroadcastRely{}
-					err := json.Unmarshal(inputPacket.InnerContent, rplpacket)
-					if err != nil {
-						fmt.Println("Error while unmarshalling rpl packet")
-					} else {
-						fmt.Println("broadcast reply [", rplpacket.To, "]", "[", rplpacket.From, "]", "[", rplpacket.status, "]")
-					}
-				} else if string(inputPacket.Type) == "frq" {
-					filercvrq := &filereceivereq{}
-					err := json.Unmarshal(inputPacket.InnerContent, filercvrq)
-					if filercvrq.From != host.ID() {
-						fmt.Println("Recieved file recieve request")
-						if err != nil {
-							fmt.Println("Error while unmarshalling frq packet")
-						} else {
-							go requestFile(ctx, host, filercvrq.Filename, filercvrq.Type, filercvrq.Size, filercvrq.From, protocol.ID(pid))
-						}
-					}
-				}
+				fmt.Println("Error while unmarshalling file list packet:", err)
 			}
+			fmt.Println("Received file list from the network:")
+			for i, file := range fileList {
+				fmt.Printf("%d. %s\n", i+1, file)
+			}
+		case "msg":
+			// Handle regular messages
+			chatMsg := &Chatmessage{}
+			err := json.Unmarshal(inputPacket.InnerContent, chatMsg)
+			if err != nil {
+				fmt.Println("Error while unmarshalling msg packet:", err)
+				continue
+			}
+			fmt.Printf("[%s] %s\n", chatMsg.Authorname, chatMsg.Messagecontent)
+		case "fileselect":
+			// Handle file selection
+			var selectedFileIndex int
+			err := json.Unmarshal(inputPacket.InnerContent, &selectedFileIndex)
+			if err != nil {
+				fmt.Println("Error while unmarshalling file select packet:", err)
+				continue
+			}
+			if selectedFileIndex < 1 || selectedFileIndex > len(fileList) {
+				fmt.Println("Invalid file index")
+				continue
+			}
+			selectedFile := fileList[selectedFileIndex-1]
+			fmt.Printf("Selected file: %s\n", selectedFile)
+			// Now you can proceed to request this file from the network
 		}
 	}
 }
@@ -169,41 +167,62 @@ func requestFile(ctx context.Context, host host.Host, filename string, filetype 
 func writeToSubscription(ctx context.Context, host host.Host, pubSubTopic *pubsub.Topic) {
 	reader := bufio.NewReader(os.Stdin)
 	for {
-		messg, err := reader.ReadString('\n')
-		if err != nil {
-			fmt.Println("Error while reading from standard input")
-		} else {
-			fmt.Println(messg[:3])
-			if messg[:3] == "<s>" {
-				filename := messg[3:]
-				fmt.Println("send file ", filename[:len(filename)-1])
-				filename_send = filename[:len(filename)-1]
-				filename_sep := strings.Split(filename[:len(filename)-1], ".")
-				size, _ := getByteSize(filename_sep[0] + "." + filename_sep[1])
-				newFrq := filereceivereq{
-					Filename: filename_sep[0],
-					Type:     filename_sep[1],
-					From:     host.ID(),
-					Size:     size,
-				}
-				newFrq.newFileRecieveRequest(ctx, pubSubTopic)
+		select {
+		case <-ctx.Done():
+			return
+		default:
+			messg, err := reader.ReadString('\n')
+			if err != nil {
+				fmt.Println("Error while reading from standard input:", err)
 				continue
-
 			}
-
-			chatMsg := composeMessage(messg, host)
-			inputCnt, err := json.Marshal(*chatMsg)
-			if err != nil {
-				fmt.Println("Error while marshaling the chat message")
-			}
-
-			pktMsg, err := json.Marshal(Packet{
-				Type:         "msg",
-				InnerContent: inputCnt,
-			})
-			if err != nil {
-				fmt.Println("Error while marshalling the paket")
+			messg = strings.TrimSpace(messg)
+			if messg == "list" {
+				SendFileListToAllNodes(ctx, host, pubSubTopic)
+			} else if strings.HasPrefix(messg, "select ") {
+				parts := strings.Split(messg, " ")
+				if len(parts) != 2 {
+					fmt.Println("Invalid command. Usage: select <file index>")
+					continue
+				}
+				fileIndexStr := parts[1]
+				fileIndex, err := strconv.Atoi(fileIndexStr)
+				if err != nil {
+					fmt.Println("Invalid file index")
+					continue
+				}
+				// Marshal the file selection packet
+				fileSelectPacket, err := json.Marshal(fileIndex)
+				if err != nil {
+					fmt.Println("Error marshalling file selection packet:", err)
+					continue
+				}
+				// Publish the file selection packet to the topic
+				pktMsg, err := json.Marshal(Packet{
+					Type:         "fileselect",
+					InnerContent: fileSelectPacket,
+				})
+				if err != nil {
+					fmt.Println("Error marshalling file select packet:", err)
+					continue
+				}
+				pubSubTopic.Publish(ctx, pktMsg)
 			} else {
+				// Send regular message
+				chatMsg := composeMessage(messg, host)
+				inputCnt, err := json.Marshal(*chatMsg)
+				if err != nil {
+					fmt.Println("Error marshaling the chat message:", err)
+					continue
+				}
+				pktMsg, err := json.Marshal(Packet{
+					Type:         "msg",
+					InnerContent: inputCnt,
+				})
+				if err != nil {
+					fmt.Println("Error marshalling the packet:", err)
+					continue
+				}
 				pubSubTopic.Publish(ctx, pktMsg)
 			}
 		}
@@ -213,4 +232,28 @@ func writeToSubscription(ctx context.Context, host host.Host, pubSubTopic *pubsu
 func HandlePubSubMessages(ctx context.Context, host host.Host, sub *pubsub.Subscription, top *pubsub.Topic) {
 	go handleInputFromSubscription(ctx, host, sub, top)
 	writeToSubscription(ctx, host, top)
+}
+func SendFileListToAllNodes(ctx context.Context, host host.Host, pubSubTopic *pubsub.Topic) {
+	fileList, err := structure.GetFileListYouHave("/home/amina/Desktop/FileSharingNetwork") // Change this to the path where your files are stored
+	if err != nil {
+		fmt.Println("Error getting file list:", err)
+		return
+	}
+	// Marshal the file list
+	fileListJSON, err := json.Marshal(fileList)
+	if err != nil {
+		fmt.Println("Error marshalling file list:", err)
+		return
+	}
+	// Publish the file list to the topic
+	pktMsg, err := json.Marshal(Packet{
+		Type:         "filelist",
+		InnerContent: fileListJSON,
+	})
+	if err != nil {
+		fmt.Println("Error marshalling file list packet:", err)
+		return
+	}
+	pubSubTopic.Publish(ctx, pktMsg)
+	fmt.Println("File list sent to all nodes")
 }
