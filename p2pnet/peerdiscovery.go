@@ -26,7 +26,6 @@ type PeerInfo struct {
 	Files []string
 }
 
-// Maintain a map of peers and their information.
 var peerFilesMap = make(map[peer.ID]PeerInfo)
 
 func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht *dht.IpfsDHT) {
