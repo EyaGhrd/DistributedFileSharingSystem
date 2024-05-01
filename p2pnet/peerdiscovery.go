@@ -28,7 +28,7 @@ type PeerInfo struct {
 
 var peerFilesMap = make(map[peer.ID]PeerInfo)
 
-func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht *dht.IpfsDHT) {
+func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht *dht.IpfsDHT, peerChan chan peer.AddrInfo) {
 	// Create the routing discovery
 	routingDiscovery := drouting.NewRoutingDiscovery(kad_dht)
 	dutil.Advertise(ctx, routingDiscovery, config.RendezvousString)
@@ -70,7 +70,7 @@ func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht 
 				if isDuplicate {
 					continue
 				}
-
+				peerChan <- peerAdd
 				// Connect to the peer
 				fmt.Println("Found peerAdd:", peerAdd.ID)
 				streams, err := host.NewStream(ctx, peerAdd.ID, protocol.ID(config.ProtocolID))
@@ -114,7 +114,6 @@ func DiscoverPeers(ctx context.Context, host host.Host, config *Config, kad_dht 
 						stream.HandleIncomingStreams(ctx, host)
 
 					}
-
 				}
 			}
 		}

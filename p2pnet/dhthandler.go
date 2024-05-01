@@ -7,13 +7,14 @@ import (
 	"github.com/gorilla/websocket"
 	"github.com/libp2p/go-libp2p/core/peer"
 	"net/http"
+	"sync"
 	"time"
 
 	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/host"
 )
 
-func BootstrapDHT(ctx context.Context, host host.Host, kad_dht *dht.IpfsDHT, peerChan chan peer.AddrInfo) {
+func BootstrapDHT(ctx context.Context, host host.Host, kad_dht *dht.IpfsDHT) {
 	err := kad_dht.Bootstrap(ctx)
 	if err != nil {
 		fmt.Println("Error while setting the DHT in bootstrap mode:", err)
@@ -29,7 +30,9 @@ func BootstrapDHT(ctx context.Context, host host.Host, kad_dht *dht.IpfsDHT, pee
 		} else {
 			fmt.Println("Successfully connected to:", bootstrapPeer.ID)
 			// Send the successfully connected bootstrap peer to the channel
-			peerChan <- bootstrapPeer
+			//peerChan <- bootstrapPeer
+			//fmt.Println("OMG", peerChan)
+
 		}
 	}
 	fmt.Println("Done with all connections to DHT Bootstrap peers")
@@ -51,35 +54,65 @@ func InitDHT(ctx context.Context, host host.Host) *dht.IpfsDHT {
 //	return kad_dht
 //}
 
-func StartServer(peerChan chan peer.AddrInfo) {
-	http.HandleFunc("/api/peers", peersHandler(peerChan)) // Traditional HTTP endpoint
-	http.HandleFunc("/ws", wsHandler(peerChan))           // WebSocket endpoint
+var upgrader = websocket.Upgrader{
+	CheckOrigin: func(r *http.Request) bool {
+		return true // Adjust this to ensure proper CORS handling
+	},
+}
 
-	fmt.Println("HTTP server starting on port 8081...")
-	err := http.ListenAndServe(":8081", nil)
-	if err != nil {
-		fmt.Println("Error starting server:", err)
+var clients = make(map[*websocket.Conn]bool) // connected clients
+var lock = sync.Mutex{}
+
+func BroadcastPeers(peerChan <-chan peer.AddrInfo) {
+	for peer := range peerChan {
+		peerInfo := fmt.Sprintf("Peer ID: %s, Addresses: %v", peer.ID, peer.Addrs)
+		broadcastToAllClients(peerInfo)
 	}
 }
 
-func wsHandler(peerChan chan peer.AddrInfo) http.HandlerFunc {
+func broadcastToAllClients(message string) {
+	lock.Lock()
+	defer lock.Unlock()
+	for conn := range clients {
+		if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
+			fmt.Println("Failed to send to a client:", err)
+			conn.Close()
+			delete(clients, conn)
+		}
+	}
+}
+
+// wsHandler manages WebSocket connections and sends discovered peers to clients
+func wsHandler(peerChan <-chan peer.AddrInfo) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		var upgrader = websocket.Upgrader{CheckOrigin: func(r *http.Request) bool {
-			return true // Allow all origins
-		}}
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
-			fmt.Println("Upgrade error:", err)
+			fmt.Println("WebSocket upgrade error:", err)
 			return
 		}
-		defer conn.Close()
+		fmt.Println("WebSocket connection established")
 
-		for peer := range peerChan {
-			if err := conn.WriteJSON(peer); err != nil {
-				fmt.Println("Error sending peer over WebSocket:", err)
-				break
+		// This routine listens for messages on peerChan and sends them to the WebSocket client
+		go func() {
+			for peer := range peerChan {
+				fmt.Println("Sending peer info to client:", peer.ID)
+				peerData := fmt.Sprintf("Peer ID: %s, Addresses: %v", peer.ID, peer.Addrs)
+				if err := conn.WriteMessage(websocket.TextMessage, []byte(peerData)); err != nil {
+					fmt.Println("Error sending message:", err)
+					return
+				}
 			}
-		}
+		}()
+	}
+}
+
+// StartServer initializes the HTTP server and handles incoming requests
+func StartServer(peerChan chan peer.AddrInfo) {
+	http.HandleFunc("/ws", wsHandler(peerChan))
+
+	fmt.Println("HTTP server starting on port 8081...")
+	if err := http.ListenAndServe(":8081", nil); err != nil {
+		fmt.Println("Error starting server:", err)
 	}
 }
 

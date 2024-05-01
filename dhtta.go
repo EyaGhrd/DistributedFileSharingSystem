@@ -128,30 +128,38 @@ func createNode(config *p2pnet.Config) (host.Host, error) {
 	fmt.Println("host address: ", host.Addrs())
 	return host, nil
 }
+
 func main() {
-	peerChan = make(chan peer.AddrInfo, 100)
+	peerChan := make(chan peer.AddrInfo, 100) // Buffered channel for peer info
 	ctx, cancel := context.WithCancel(context.Background())
 	defer cancel()
 
-	//r := rand.Reader
-	//	prvKey, _, err := crypto.GenerateKeyPairWithReader(crypto.RSA, 2048, r)
+	// Parse configuration and create node
 	config := p2pnet.ParseFlags()
-
 	h, err := createNode(config)
 	if err != nil {
-		panic(err)
+		fmt.Println("Error creating node:", err)
+		return
 	}
-	//h.SetStreamHandler(protocol.ID(config.ProtocolID), stream.HandleInputStream)
-	fmt.Println("Host created. ID:", h.ID())
 
-	//// Set up a DHT for peer discovery
+	// Initialize DHT for peer discovery
 	kad_dht := p2pnet.InitDHT(ctx, h)
-	fmt.Println("ty sayyeb aad ", kad_dht)
-	p2pnet.BootstrapDHT(ctx, h, kad_dht, peerChan)
-	p2pnet.StartServer(peerChan)
-	//p2pnet.DiscoverPeers(ctx, h, config, kad_dht)
 
+	// Run peer discovery in its own goroutine
+	go p2pnet.BootstrapDHT(ctx, h, kad_dht)
+	go p2pnet.DiscoverPeers(ctx, h, config, kad_dht, peerChan)
+
+	// Start HTTP and WebSocket server in a separate goroutine
+	go func() {
+		p2pnet.StartServer(peerChan)
+		p2pnet.BroadcastPeers(peerChan)
+	}()
+	// Use a blocking channel or select statement to keep main from exiting
+	// if there are no other blocking calls after this point
+	block := make(chan struct{})
+	<-block
 }
+
 func multiaddrString(addr string) multiaddr.Multiaddr {
 	maddr, err := multiaddr.NewMultiaddr(addr)
 	if err != nil {
