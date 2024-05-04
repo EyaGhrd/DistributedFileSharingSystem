@@ -63,9 +63,9 @@ var upgrader = websocket.Upgrader{
 var clients = make(map[*websocket.Conn]bool) // connected clients
 var lock = sync.Mutex{}
 
-func BroadcastPeers(peerChan <-chan peer.AddrInfo) {
-	for peer := range peerChan {
-		peerInfo := fmt.Sprintf("Peer ID: %s, Addresses: %v", peer.ID, peer.Addrs)
+func BroadcastPeers(peerChan <-chan PeerUpdate) {
+	for peerUpdate := range peerChan {
+		peerInfo := fmt.Sprintf("Status: %s, Peer ID: %s, Addresses: %v", peerUpdate.Status, peerUpdate.PeerAddrInfo.ID, peerUpdate.PeerAddrInfo.Addrs)
 		broadcastToAllClients(peerInfo)
 	}
 }
@@ -76,14 +76,13 @@ func broadcastToAllClients(message string) {
 	for conn := range clients {
 		if err := conn.WriteMessage(websocket.TextMessage, []byte(message)); err != nil {
 			fmt.Println("Failed to send to a client:", err)
-			conn.Close()
 			delete(clients, conn)
 		}
 	}
 }
 
 // wsHandler manages WebSocket connections and sends discovered peers to clients
-func wsHandler(peerChan <-chan peer.AddrInfo) http.HandlerFunc {
+func wsHandler(peerChan <-chan PeerUpdate) http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		conn, err := upgrader.Upgrade(w, r, nil)
 		if err != nil {
@@ -92,11 +91,10 @@ func wsHandler(peerChan <-chan peer.AddrInfo) http.HandlerFunc {
 		}
 		fmt.Println("WebSocket connection established")
 
-		// This routine listens for messages on peerChan and sends them to the WebSocket client
 		go func() {
-			for peer := range peerChan {
-				fmt.Println("Sending peer info to client:", peer.ID)
-				peerData := fmt.Sprintf("Peer ID: %s, Addresses: %v", peer.ID, peer.Addrs)
+			for peerUpdate := range peerChan {
+				fmt.Println("Sending peer info to client:", peerUpdate.PeerAddrInfo.ID)
+				peerData := fmt.Sprintf("Status: %s, Peer ID: %s, Addresses: %v", peerUpdate.Status, peerUpdate.PeerAddrInfo.ID, peerUpdate.PeerAddrInfo.Addrs)
 				if err := conn.WriteMessage(websocket.TextMessage, []byte(peerData)); err != nil {
 					fmt.Println("Error sending message:", err)
 					return
@@ -107,11 +105,12 @@ func wsHandler(peerChan <-chan peer.AddrInfo) http.HandlerFunc {
 }
 
 // StartServer initializes the HTTP server and handles incoming requests
-func StartServer(peerChan chan peer.AddrInfo) {
+func StartServer(peerChan chan PeerUpdate) {
 	http.HandleFunc("/ws", wsHandler(peerChan))
 
-	fmt.Println("HTTP server starting on port 8081...")
-	if err := http.ListenAndServe(":8081", nil); err != nil {
+	fmt.Println("HTTP server starting on port 8082...")
+	err := http.ListenAndServe(":8082", nil) // Capture the error returned by ListenAndServe
+	if err != nil {
 		fmt.Println("Error starting server:", err)
 	}
 }

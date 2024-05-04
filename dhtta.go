@@ -4,104 +4,19 @@ import (
 	"context"
 	"crypto/rand"
 	"fmt"
+	"github.com/Mina218/FileSharingNetwork/filetransfer"
 	"github.com/Mina218/FileSharingNetwork/p2pnet"
+	"github.com/Mina218/FileSharingNetwork/stream"
 	"github.com/libp2p/go-libp2p"
-	dht "github.com/libp2p/go-libp2p-kad-dht"
 	"github.com/libp2p/go-libp2p/core/crypto"
 	"github.com/libp2p/go-libp2p/core/host"
-	"github.com/libp2p/go-libp2p/core/peer"
+	"github.com/libp2p/go-libp2p/core/protocol"
 	"github.com/multiformats/go-multiaddr"
 	"log"
-	"strings"
-	"sync"
+	"net/http"
+	"path"
+	"path/filepath"
 )
-
-var peerChan chan peer.AddrInfo
-
-func SourceNode() host.Host {
-	node, err := libp2p.New()
-	if err != nil {
-		panic(err)
-	}
-
-	return node
-}
-func NewDh(ctx context.Context, host host.Host, Peers []multiaddr.Multiaddr) (*dht.IpfsDHT, error) {
-	var options []dht.Option
-
-	if len(Peers) == 0 {
-		options = append(options, dht.Mode(dht.ModeServer))
-	}
-
-	thisdht, err := dht.New(ctx, host, options...)
-	if err != nil {
-		return nil, err
-	}
-	if err = thisdht.Bootstrap(ctx); err != nil {
-		return nil, err
-	}
-
-	var wg sync.WaitGroup
-	for _, peerAddr := range Peers {
-		peerinformations, err := peer.AddrInfoFromP2pAddr(peerAddr)
-		if err != nil {
-			return nil, err
-		}
-		wg.Add(1)
-
-		go func() {
-			defer wg.Done()
-			if err := host.Connect(ctx, *peerinformations); err != nil {
-				log.Printf("Error while connecting to node %q: %-v", peerinformations, err)
-			} else {
-				log.Printf("Connection established with bootstrap node: %q", *peerinformations)
-			}
-		}()
-	}
-	wg.Wait()
-
-	return thisdht, nil
-}
-func DestinationNode() host.Host {
-
-	listenAddr := "/ip4/172.17.0.1/tcp/9090"
-	node, err := libp2p.New(libp2p.ListenAddrStrings(listenAddr))
-	if err != nil {
-		panic(err)
-	}
-
-	return node
-}
-func connectToNodeFromSource(sourceNode host.Host, targetNode host.Host) {
-	targetNodeAddressInfo := host.InfoFromHost(targetNode)
-	err := sourceNode.Connect(context.Background(), *targetNodeAddressInfo)
-	if err != nil {
-		panic(err)
-	}
-}
-func countSourceNodePeers(sourceNode host.Host) int {
-	return len(sourceNode.Network().Peers())
-}
-func printNodeID(host host.Host) {
-	println(fmt.Sprintf("ID: %s", host.ID().String()))
-}
-
-func printNodeAddresses(host host.Host) {
-	addressesString := make([]string, 0)
-	for _, address := range host.Addrs() {
-		addressesString = append(addressesString, address.String())
-	}
-
-	println(fmt.Sprintf("Multiaddresses: %s", strings.Join(addressesString, ", ")))
-}
-func createNodeWithMultiaddr(ctx context.Context, listenAddress multiaddr.Multiaddr) (host.Host, error) {
-	// Create a new libp2p node specifying the listen address
-	node, err := libp2p.New(libp2p.ListenAddrStrings(listenAddress.String()))
-	if err != nil {
-		return nil, err
-	}
-	return node, nil
-}
 
 func createNode(config *p2pnet.Config) (host.Host, error) {
 	fmt.Printf("[*] Listening on: %s with port: %d\n", config.ListenHost, config.ListenPort)
@@ -129,41 +44,99 @@ func createNode(config *p2pnet.Config) (host.Host, error) {
 	return host, nil
 }
 
+func enableCors(w *http.ResponseWriter) {
+	(*w).Header().Set("Access-Control-Allow-Origin", "*")
+	(*w).Header().Set("Access-Control-Allow-Methods", "POST, GET, OPTIONS, PUT, DELETE")
+	(*w).Header().Set("Access-Control-Allow-Headers", "Accept, Content-Type, Content-Length, Accept-Encoding, X-CSRF-Token, Authorization")
+}
+
+func hostIDHandler(h host.Host) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		enableCors(&w)
+		if r.Method == "OPTIONS" {
+			w.WriteHeader(http.StatusOK)
+			return
+		}
+
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(fmt.Sprintf(`{"hostID": "%s"}`, h.ID().String())))
+	}
+}
+
+func downloadFileHandler(w http.ResponseWriter, r *http.Request) {
+	// Set the path to the directory where the files are stored
+	fileStoragePath := "/home/eya/FileSharingNetwork/log/"
+
+	// Get the filename from the URL parameter
+	filename := r.URL.Query().Get("filename")
+	if filename == "" {
+		http.Error(w, "Filename not specified", http.StatusBadRequest)
+		return
+	}
+
+	// Clean the filename to prevent path traversal vulnerabilities
+	cleanFilename := filepath.Base(filename)
+
+	// Create the full path to the file
+	filePath := path.Join(fileStoragePath, cleanFilename)
+
+	// Check if file exists and open
+	file, err := http.Dir(fileStoragePath).Open(cleanFilename)
+	if err != nil {
+		http.Error(w, "File not found.", http.StatusNotFound)
+		return
+	}
+	defer file.Close()
+
+	// Set the header to download the file instead of opening it
+	w.Header().Set("Content-Disposition", "attachment; filename="+cleanFilename)
+	w.Header().Set("Content-Type", "application/octet-stream")
+
+	// Serve the file
+	http.ServeFile(w, r, filePath)
+}
 func main() {
-	peerChan := make(chan peer.AddrInfo, 100) // Buffered channel for peer info
+	peerChan := make(chan p2pnet.PeerUpdate, 100)
 	ctx, cancel := context.WithCancel(context.Background())
+
 	defer cancel()
 
-	// Parse configuration and create node
 	config := p2pnet.ParseFlags()
 	h, err := createNode(config)
 	if err != nil {
 		fmt.Println("Error creating node:", err)
 		return
 	}
+	h.SetStreamHandler(protocol.ID(config.ProtocolID), stream.HandleInputStream)
 
-	// Initialize DHT for peer discovery
-	kad_dht := p2pnet.InitDHT(ctx, h)
+	kadDht := p2pnet.InitDHT(ctx, h)
 
-	// Run peer discovery in its own goroutine
-	go p2pnet.BootstrapDHT(ctx, h, kad_dht)
-	go p2pnet.DiscoverPeers(ctx, h, config, kad_dht, peerChan)
+	go p2pnet.BootstrapDHT(ctx, h, kadDht)
+	go p2pnet.DiscoverPeers(ctx, h, config, kadDht,peerChan)
 
-	// Start HTTP and WebSocket server in a separate goroutine
+	go func() {
+		http.HandleFunc("/host-id", hostIDHandler(h))
+		log.Println("Host ID server starting on port 8090...")
+		log.Fatal(http.ListenAndServe(":8090", nil))
+	}()
+
 	go func() {
 		p2pnet.StartServer(peerChan)
 		p2pnet.BroadcastPeers(peerChan)
 	}()
-	// Use a blocking channel or select statement to keep main from exiting
-	// if there are no other blocking calls after this point
+
+	go func() {
+		http.HandleFunc("/api/files", filetransfer.EnableCORS(filetransfer.FileHandler))
+		log.Println("Server starting on port :8088...")
+		log.Fatal(http.ListenAndServe(":8088", nil))
+	}()
+
+	go func() {
+		http.HandleFunc("/request-file", stream.HandleFileRequest)
+		log.Println("Server starting on port :8089...")
+		log.Fatal(http.ListenAndServe(":8089", nil))
+	}()
 	block := make(chan struct{})
 	<-block
-}
-
-func multiaddrString(addr string) multiaddr.Multiaddr {
-	maddr, err := multiaddr.NewMultiaddr(addr)
-	if err != nil {
-		panic(err)
-	}
-	return maddr
 }
